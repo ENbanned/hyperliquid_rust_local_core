@@ -115,6 +115,10 @@ impl Reader {
     async fn rotate(&mut self, new_path: PathBuf) -> Result<()> {
         self.read_into_pending().await?;
 
+        if let Some(old_file) = &mut self.file {
+            old_file.discard_partial();
+        }
+
         let tracked = TrackedFile::open(new_path).await?;
         self.file = Some(tracked);
 

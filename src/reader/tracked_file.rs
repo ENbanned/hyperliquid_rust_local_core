@@ -7,6 +7,7 @@ use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader, SeekFrom};
 pub struct TrackedFile {
     path: PathBuf,
     reader: BufReader<File>,
+    partial: String,
 }
 
 impl TrackedFile {
@@ -15,6 +16,7 @@ impl TrackedFile {
         Ok(Self {
             path,
             reader: BufReader::new(file),
+            partial: String::new(),
         })
     }
 
@@ -24,6 +26,7 @@ impl TrackedFile {
         Ok(Self {
             path,
             reader: BufReader::new(file),
+            partial: String::new(),
         })
     }
 
@@ -33,16 +36,41 @@ impl TrackedFile {
 
         loop {
             buf.clear();
-            if self.reader.read_line(&mut buf).await? == 0 {
+            let bytes_read = self.reader.read_line(&mut buf).await?;
+
+            if bytes_read == 0 {
                 break;
             }
-            let trimmed = buf.trim_end();
-            if !trimmed.is_empty() {
-                lines.push(trimmed.to_owned());
+
+            let has_newline = buf.ends_with('\n');
+            let content = buf.trim_end();
+
+            if content.is_empty() {
+                continue;
+            }
+
+            let full_line = if self.partial.is_empty() {
+                content.to_owned()
+            } else {
+                let combined = std::mem::take(&mut self.partial) + content;
+                combined
+            };
+
+            if has_newline {
+                lines.push(full_line);
+            } else {
+                self.partial = full_line;
             }
         }
 
         Ok(lines)
+    }
+
+    pub fn discard_partial(&mut self) {
+        if !self.partial.is_empty() {
+            tracing::debug!("discarding {} bytes partial line", self.partial.len());
+            self.partial.clear();
+        }
     }
 
     pub fn path(&self) -> &PathBuf {
